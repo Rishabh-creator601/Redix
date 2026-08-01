@@ -1,12 +1,6 @@
 const DEFAULTS = {
   enabled: true,
   strict: false,
-  hideNsfw: true,
-  nsfwLocked: false,
-  imgFilter: true,
-  imgIncludeSexy: false,
-  imgSensitivity: 60,
-  ocrEnabled: false,
   hiddenSubs: [],
   allowMode: false,
   allowedSubs: [],
@@ -33,25 +27,8 @@ document.querySelectorAll(".tab").forEach(t => {
 // ---- Filter settings ----
 const enabledEl = document.getElementById("enabled");
 const strictEl = document.getElementById("strict");
-const nsfwEl = document.getElementById("hideNsfw");
-const lockBtn = document.getElementById("lockBtn");
-const lockRow = document.getElementById("lockRow");
-const lockedNote = document.getElementById("lockedNote");
 const keywordsEl = document.getElementById("keywords");
-let isLocked = false;
-
-function reflectLock() {
-  nsfwEl.checked = isLocked ? true : nsfwEl.checked;
-  nsfwEl.disabled = isLocked;
-  lockRow.style.display = isLocked ? "none" : "flex";
-  lockedNote.style.display = isLocked ? "block" : "none";
-}
 const statusEl = document.getElementById("status");
-const imgFilterEl = document.getElementById("imgFilter");
-const imgSexyEl = document.getElementById("imgIncludeSexy");
-const sensEl = document.getElementById("imgSensitivity");
-const sensValEl = document.getElementById("sensVal");
-const ocrEl = document.getElementById("ocrEnabled");
 const allowModeEl = document.getElementById("allowMode");
 const homeBlockEl = document.getElementById("homeBlock");
 const allowedSubsEl = document.getElementById("allowedSubs");
@@ -75,14 +52,6 @@ function parseAllowedSubs(str) {
 chrome.storage.sync.get(DEFAULTS, (s) => {
   enabledEl.checked = s.enabled !== false;
   strictEl.checked = !!s.strict;
-  nsfwEl.checked = s.hideNsfw !== false;
-  isLocked = !!s.nsfwLocked;
-  reflectLock();
-  imgFilterEl.checked = !!s.imgFilter;
-  imgSexyEl.checked = !!s.imgIncludeSexy;
-  sensEl.value = s.imgSensitivity || 60;
-  sensValEl.textContent = sensEl.value;
-  ocrEl.checked = !!s.ocrEnabled;
   allowModeEl.checked = !!s.allowMode;
   homeBlockEl.checked = !!s.homeBlock;
   allowedSubsEl.value = (s.allowedSubs || []).join("\n");
@@ -103,22 +72,15 @@ function saveAll(msg) {
   const keywords = keywordsEl.value.split("\n").map(w => w.trim()).filter(Boolean);
   const patch = {
     enabled: enabledEl.checked,
-    strict: strictEl.checked,
-    hideNsfw: isLocked ? true : nsfwEl.checked,
-    imgFilter: imgFilterEl.checked,
-    imgIncludeSexy: imgSexyEl.checked,
-    imgSensitivity: parseInt(sensEl.value, 10) || 60,
-    ocrEnabled: ocrEl.checked
+    strict: strictEl.checked
   };
   if (keywords.length) patch.keywords = keywords; // keep defaults if textarea empty
   chrome.storage.sync.set(patch, () => { if (msg) flash(msg); });
 }
 
-// Toggles/slider apply immediately; keyword edits save on button click.
-[enabledEl, strictEl, nsfwEl, imgFilterEl, imgSexyEl, ocrEl].forEach(el =>
+// Toggles apply immediately; keyword edits save on button click.
+[enabledEl, strictEl].forEach(el =>
   el.addEventListener("change", () => saveAll("Applied.")));
-sensEl.addEventListener("input", () => { sensValEl.textContent = sensEl.value; });
-sensEl.addEventListener("change", () => saveAll("Applied."));
 document.getElementById("save").addEventListener("click", () =>
   saveAll("Saved. Reddit tabs update automatically."));
 
@@ -271,21 +233,6 @@ document.getElementById("verifyAllowed").addEventListener("click", async () => {
   } else {
     allowedFlash("✔ All " + subs.length + " communities exist. Saved.");
   }
-});
-
-lockBtn.addEventListener("click", () => {
-  const ok = window.confirm(
-    "Lock adult-content blocking ON?\n\n" +
-    "You will NOT be able to turn it off from this popup afterwards. " +
-    "The only way to remove it is to uninstall the extension in chrome://extensions.\n\n" +
-    "Continue?");
-  if (!ok) return;
-  isLocked = true;
-  nsfwEl.checked = true;
-  chrome.storage.sync.set({ nsfwLocked: true, hideNsfw: true }, () => {
-    reflectLock();
-    flash("Locked on.");
-  });
 });
 
 // ---- Theme filters (concept-connection blocking) ----
@@ -561,149 +508,333 @@ function unblockSub(name) {
   });
 }
 
-// Persistent list of blocked communities (names) with per-item un-block.
+// Persistent list of blocked communities, collapsed behind a Show/Hide button
+// so a long list never buries the finder. Both survive a re-render (blocking a
+// community from the results below re-renders this section underneath the user).
+let blockedOpen = false;
+let blockedFilter = "";
+const FILTER_AFTER = 8; // only offer a filter once scanning the list gets slow
+
+function blockedRow(name) {
+  const row = document.createElement("div");
+  row.className = "bx-row";
+
+  const pre = document.createElement("span");
+  pre.className = "bx-pre";
+  pre.textContent = "r/";
+  const nm = document.createElement("span");
+  nm.className = "bx-name";
+  nm.textContent = name;
+  nm.title = "r/" + name;
+
+  const un = document.createElement("button");
+  un.className = "bx-un";
+  un.type = "button";
+  un.textContent = "Unblock";
+  un.title = "Unblock r/" + name;
+  un.addEventListener("click", () => unblockSub(name));
+
+  row.appendChild(pre);
+  row.appendChild(nm);
+  row.appendChild(un);
+  return row;
+}
+
+// Persistent list of blocked communities (names) with per-item unblock.
 function renderBlocked() {
   chrome.storage.sync.get({ hiddenSubs: [] }, v => {
-    const subs = v.hiddenSubs || [];
+    const subs = (v.hiddenSubs || []).slice()
+      .sort((a, b) => String(a).toLowerCase().localeCompare(String(b).toLowerCase()));
     blockedSection.innerHTML = "";
-    if (!subs.length) return;
+    if (!subs.length) blockedFilter = "";
 
-    const title = document.createElement("div");
-    title.className = "section-title";
-    title.textContent = "Blocked communities (" + subs.length + ")";
-    blockedSection.appendChild(title);
+    // ---- Trigger ----
+    const toggle = document.createElement("button");
+    toggle.className = "bx-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(blockedOpen));
+    toggle.setAttribute("aria-controls", "bx-panel");
+    const label = document.createElement("span");
+    label.textContent = (blockedOpen ? "Hide" : "Show") + " blocked communities";
+    const count = document.createElement("span");
+    count.className = "bx-count" + (subs.length ? "" : " none");
+    count.textContent = subs.length ? String(subs.length) : "None";
+    toggle.appendChild(label);
+    toggle.appendChild(count);
+    blockedSection.appendChild(toggle);
 
-    const wrap = document.createElement("div");
-    wrap.className = "chips";
-    subs.forEach(name => {
-      const chip = document.createElement("span");
-      chip.className = "chip";
-      const label = document.createElement("span");
-      label.textContent = "r/" + name;
-      const rm = document.createElement("button");
-      rm.className = "chip-x";
-      rm.textContent = "×";
-      rm.title = "Un-block r/" + name;
-      rm.addEventListener("click", () => unblockSub(name));
-      chip.appendChild(label);
-      chip.appendChild(rm);
-      wrap.appendChild(chip);
+    // ---- Panel ----
+    const panel = document.createElement("div");
+    panel.className = "bx-panel" + (blockedOpen ? " open" : "");
+    panel.id = "bx-panel";
+    const inner = document.createElement("div");
+    inner.className = "bx-inner";
+    panel.appendChild(inner);
+    blockedSection.appendChild(panel);
+
+    // Declared before the empty-list return below, so the toggle handler can
+    // always read it (a `let` skipped by an early return stays in its TDZ).
+    let filter = null;
+
+    toggle.addEventListener("click", () => {
+      blockedOpen = !blockedOpen;
+      panel.classList.toggle("open", blockedOpen);
+      toggle.setAttribute("aria-expanded", String(blockedOpen));
+      label.textContent = (blockedOpen ? "Hide" : "Show") + " blocked communities";
+      if (blockedOpen && filter) filter.focus();
     });
-    blockedSection.appendChild(wrap);
 
+    if (!subs.length) {
+      const empty = document.createElement("p");
+      empty.className = "bx-empty";
+      empty.textContent = "Nothing blocked yet. Search below and hit Block to hide a community everywhere.";
+      inner.appendChild(empty);
+      return;
+    }
+
+    if (subs.length > FILTER_AFTER) {
+      filter = document.createElement("input");
+      filter.className = "bx-filter";
+      filter.type = "text";
+      filter.placeholder = "Filter " + subs.length + " communities…";
+      filter.value = blockedFilter;
+      filter.addEventListener("input", () => {
+        blockedFilter = filter.value.trim().toLowerCase();
+        paintList();
+      });
+      inner.appendChild(filter);
+    }
+
+    const list = document.createElement("div");
+    list.className = "bx-list";
+    inner.appendChild(list);
+
+    function paintList() {
+      const shown = blockedFilter
+        ? subs.filter(n => String(n).toLowerCase().includes(blockedFilter))
+        : subs;
+      list.innerHTML = "";
+      if (!shown.length) {
+        const none = document.createElement("p");
+        none.className = "bx-empty";
+        none.textContent = "No blocked community matches that.";
+        list.appendChild(none);
+        return;
+      }
+      shown.forEach(name => list.appendChild(blockedRow(name)));
+    }
+    paintList();
+
+    // ---- Footer ----
+    const foot = document.createElement("div");
+    foot.className = "bx-foot";
     const all = document.createElement("button");
-    all.className = "link";
-    all.textContent = "Un-block all";
-    all.addEventListener("click", () => chrome.storage.sync.set({ hiddenSubs: [] }, renderBlocked));
-    blockedSection.appendChild(all);
-    blockedSection.appendChild(document.createElement("hr"));
+    all.className = "bx-all";
+    all.type = "button";
+    all.textContent = "Unblock all";
+    // Two clicks to clear a list the user built up over time; reverts if ignored.
+    let armed = false;
+    all.addEventListener("click", () => {
+      if (subs.length > 1 && !armed) {
+        armed = true;
+        all.classList.add("armed");
+        all.textContent = "Unblock all " + subs.length + "? Click again";
+        setTimeout(() => {
+          if (!armed) return;
+          armed = false;
+          all.classList.remove("armed");
+          all.textContent = "Unblock all";
+        }, 3000);
+        return;
+      }
+      chrome.storage.sync.set({ hiddenSubs: [] }, renderBlocked);
+    });
+    foot.appendChild(all);
+    inner.appendChild(foot);
   });
 }
 
 // Refresh the list if a community is blocked from the page while the popup is open.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "sync" && changes.hiddenSubs) renderBlocked();
+  if (area !== "sync") return;
+  if (changes.hiddenSubs) renderBlocked();
+  renderBackupRows(); // keep the per-section counts honest
 });
 renderBlocked();
 
-// ---- Export / Import (keywords, blocked communities, and all settings) ----
+// ---- Backup: one file per section ----
+// Restoring your keywords shouldn't silently replace your blocked list, so each
+// section exports and imports on its own. "Everything" still writes one file
+// with the lot for a full machine-to-machine move.
 const backupStatus = document.getElementById("backupStatus");
+const backupRows = document.getElementById("backupRows");
+
 function backupFlash(msg, ok) {
   backupStatus.textContent = msg;
   backupStatus.style.color = ok === false ? "var(--danger)" : "var(--ok)";
   setTimeout(() => (backupStatus.textContent = ""), 4000);
 }
 
-document.getElementById("exportBtn").addEventListener("click", () => {
+// Nothing reaches storage without passing through here. Each returns null when
+// the value in the file is the wrong shape, so a bad key is skipped, not saved.
+const CLEAN = {
+  enabled: v => typeof v === "boolean" ? v : null,
+  strict: v => typeof v === "boolean" ? v : null,
+  keywords: v => Array.isArray(v) ? v.map(String).map(w => w.trim()).filter(Boolean) : null,
+  themes: v => Array.isArray(v) ? sanitizeThemes(v) : null,
+  themesEnabled: v => typeof v === "boolean" ? v : null,
+  allowMode: v => typeof v === "boolean" ? v : null,
+  allowedSubs: v => Array.isArray(v) ? parseAllowedSubs(v.join("\n")) : null,
+  homeBlock: v => typeof v === "boolean" ? v : null,
+  hiddenSubs: v => Array.isArray(v)
+    ? [...new Set(v.map(String).map(x => x.trim()).filter(Boolean))] : null
+};
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+const SECTIONS = [
+  { id: "keywords", label: "Keywords", file: "rpf-keywords.json",
+    keys: ["keywords", "enabled", "strict"], required: "keywords",
+    meta: s => plural((s.keywords || []).length, "keyword", "keywords") },
+  { id: "themes", label: "Themes", file: "rpf-themes.json",
+    keys: ["themes", "themesEnabled"], required: "themes",
+    meta: s => plural((s.themes || []).length, "theme", "themes") },
+  { id: "allowed", label: "Allowed communities", file: "rpf-allowed-communities.json",
+    keys: ["allowedSubs", "allowMode"], required: "allowedSubs",
+    meta: s => plural((s.allowedSubs || []).length, "community", "communities") },
+  { id: "blocked", label: "Blocked communities", file: "rpf-blocked-communities.json",
+    keys: ["hiddenSubs"], required: "hiddenSubs",
+    meta: s => plural((s.hiddenSubs || []).length, "community", "communities") },
+  { id: "all", label: "Everything", file: "rpf-backup.json",
+    keys: Object.keys(CLEAN), required: null,
+    meta: () => "Every list and setting in one file" }
+];
+
+function download(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportSection(sec) {
   chrome.storage.sync.get(DEFAULTS, s => {
     const data = {
       _app: "reddit-positivity-filter",
       _version: 1,
-      exportedAt: new Date().toISOString(),
-      keywords: s.keywords || [],
-      hiddenSubs: s.hiddenSubs || [],
-      allowMode: s.allowMode,
-      allowedSubs: s.allowedSubs || [],
-      homeBlock: s.homeBlock,
-      themes: s.themes || [],
-      themesEnabled: s.themesEnabled,
-      strict: s.strict,
-      hideNsfw: s.hideNsfw,
-      imgFilter: s.imgFilter,
-      imgIncludeSexy: s.imgIncludeSexy,
-      imgSensitivity: s.imgSensitivity,
-      ocrEnabled: s.ocrEnabled
+      _kind: sec.id,
+      exportedAt: new Date().toISOString()
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "reddit-positivity-filter-backup.json";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    backupFlash("Exported " + (s.keywords || []).length + " keywords, " + (s.hiddenSubs || []).length + " blocked communities.");
+    sec.keys.forEach(k => { if (k in s) data[k] = s[k]; });
+    download(sec.file, data);
+    backupFlash("Exported " + sec.label.toLowerCase() + " to " + sec.file + ".");
   });
-});
+}
 
-const importFile = document.getElementById("importFile");
-document.getElementById("importBtn").addEventListener("click", () => importFile.click());
-importFile.addEventListener("change", () => {
-  const file = importFile.files && importFile.files[0];
-  if (!file) return;
+// Pull a section's keys out of whatever file was picked. A full "Everything"
+// backup therefore also works as the source for any single section.
+function importSection(sec, file) {
   const reader = new FileReader();
   reader.onload = () => {
     let data;
     try { data = JSON.parse(reader.result); }
-    catch (e) { backupFlash("Invalid file — not valid JSON.", false); importFile.value = ""; return; }
-    if (!data || typeof data !== "object") { backupFlash("Invalid backup file.", false); importFile.value = ""; return; }
-
-    const patch = {};
-    if (Array.isArray(data.keywords)) patch.keywords = data.keywords.map(String).map(w => w.trim()).filter(Boolean);
-    if (Array.isArray(data.hiddenSubs)) patch.hiddenSubs = [...new Set(data.hiddenSubs.map(String).map(s => s.trim()).filter(Boolean))];
-    if (Array.isArray(data.themes)) patch.themes = sanitizeThemes(data.themes);
-    if (typeof data.allowMode === "boolean") patch.allowMode = data.allowMode;
-    if (typeof data.homeBlock === "boolean") patch.homeBlock = data.homeBlock;
-    if (Array.isArray(data.allowedSubs)) patch.allowedSubs = parseAllowedSubs(data.allowedSubs.join("\n"));
-    if (typeof data.themesEnabled === "boolean") patch.themesEnabled = data.themesEnabled;
-    if (typeof data.strict === "boolean") patch.strict = data.strict;
-    if (typeof data.hideNsfw === "boolean") patch.hideNsfw = data.hideNsfw;
-    if (typeof data.imgFilter === "boolean") patch.imgFilter = data.imgFilter;
-    if (typeof data.imgIncludeSexy === "boolean") patch.imgIncludeSexy = data.imgIncludeSexy;
-    if (Number.isFinite(data.imgSensitivity)) patch.imgSensitivity = Math.min(100, Math.max(1, data.imgSensitivity));
-    if (typeof data.ocrEnabled === "boolean") patch.ocrEnabled = data.ocrEnabled;
-
-    if (!("keywords" in patch) && !("hiddenSubs" in patch) && !("themes" in patch)) {
-      backupFlash("No keywords, blocked communities or themes found in file.", false);
-      importFile.value = ""; return;
+    catch (e) { backupFlash("That file isn't valid JSON.", false); return; }
+    if (!data || typeof data !== "object") {
+      backupFlash("That file isn't a Positivity Filter backup.", false);
+      return;
     }
-    // A lock can't be lifted by importing a file with hideNsfw:false.
-    chrome.storage.sync.get({ nsfwLocked: false }, cur => {
-      if (cur.nsfwLocked) patch.hideNsfw = true;
-      chrome.storage.sync.set(patch, () => {
-        if ("keywords" in patch) keywordsEl.value = patch.keywords.join("\n");
-        if (typeof patch.strict === "boolean") strictEl.checked = patch.strict;
-        if (typeof patch.hideNsfw === "boolean") nsfwEl.checked = patch.hideNsfw;
-        if (typeof patch.imgFilter === "boolean") imgFilterEl.checked = patch.imgFilter;
-        if (typeof patch.imgIncludeSexy === "boolean") imgSexyEl.checked = patch.imgIncludeSexy;
-        if ("imgSensitivity" in patch) { sensEl.value = patch.imgSensitivity; sensValEl.textContent = patch.imgSensitivity; }
-        if (typeof patch.ocrEnabled === "boolean") ocrEl.checked = patch.ocrEnabled;
-        if (typeof patch.allowMode === "boolean") allowModeEl.checked = patch.allowMode;
-        if (typeof patch.homeBlock === "boolean") homeBlockEl.checked = patch.homeBlock;
-        if ("allowedSubs" in patch) allowedSubsEl.value = patch.allowedSubs.join("\n");
-        if ("themes" in patch) renderThemes(patch.themes);
-        if (typeof patch.themesEnabled === "boolean") themesEnabledEl.checked = patch.themesEnabled;
-        renderBlocked();
-        backupFlash("Imported " + (patch.keywords ? patch.keywords.length : 0) + " keywords, " +
-          (patch.hiddenSubs ? patch.hiddenSubs.length : 0) + " blocked communities, " +
-          (patch.themes ? patch.themes.length : 0) + " themes.");
-      });
+    const patch = {};
+    sec.keys.forEach(k => {
+      if (!(k in data)) return;
+      const cleaned = CLEAN[k](data[k]);
+      if (cleaned !== null) patch[k] = cleaned;
     });
-    importFile.value = "";
+    if (sec.required && !(sec.required in patch)) {
+      backupFlash("No " + sec.label.toLowerCase() + " in that file.", false);
+      return;
+    }
+    if (!Object.keys(patch).length) {
+      backupFlash("Nothing to import from that file.", false);
+      return;
+    }
+    chrome.storage.sync.set(patch, () => {
+      applyImported(patch);
+      backupFlash("Imported " +
+        (sec.id === "all" ? "every list and setting" : sec.meta(patch)) + ".");
+    });
   };
   reader.readAsText(file);
-});
+}
+
+// Push imported values back into the open popup so it doesn't show stale state.
+function applyImported(patch) {
+  if ("keywords" in patch) keywordsEl.value = patch.keywords.join("\n");
+  if (typeof patch.enabled === "boolean") enabledEl.checked = patch.enabled;
+  if (typeof patch.strict === "boolean") strictEl.checked = patch.strict;
+  if ("themes" in patch) renderThemes(patch.themes);
+  if (typeof patch.themesEnabled === "boolean") themesEnabledEl.checked = patch.themesEnabled;
+  if ("allowedSubs" in patch) allowedSubsEl.value = patch.allowedSubs.join("\n");
+  if (typeof patch.allowMode === "boolean") allowModeEl.checked = patch.allowMode;
+  if (typeof patch.homeBlock === "boolean") homeBlockEl.checked = patch.homeBlock;
+  if ("hiddenSubs" in patch) renderBlocked();
+  renderBackupRows();
+}
+
+function renderBackupRows() {
+  chrome.storage.sync.get(DEFAULTS, s => {
+    backupRows.innerHTML = "";
+    SECTIONS.forEach(sec => {
+      const row = document.createElement("div");
+      row.className = "bk-row";
+
+      const lbl = document.createElement("div");
+      lbl.className = "bk-lbl";
+      const b = document.createElement("b");
+      b.textContent = sec.label;
+      const small = document.createElement("small");
+      small.textContent = sec.meta(s);
+      lbl.appendChild(b);
+      lbl.appendChild(small);
+
+      const ex = document.createElement("button");
+      ex.className = "bk-btn";
+      ex.type = "button";
+      ex.textContent = "Export";
+      ex.title = "Save " + sec.label.toLowerCase() + " to " + sec.file;
+      ex.addEventListener("click", () => exportSection(sec));
+
+      // One picker per row, so the file lands in the section you clicked.
+      const picker = document.createElement("input");
+      picker.type = "file";
+      picker.accept = "application/json,.json";
+      picker.style.display = "none";
+      picker.addEventListener("change", () => {
+        const f = picker.files && picker.files[0];
+        if (f) importSection(sec, f);
+        picker.value = "";
+      });
+
+      const im = document.createElement("button");
+      im.className = "bk-btn";
+      im.type = "button";
+      im.textContent = "Import";
+      im.title = "Replace " + sec.label.toLowerCase() + " from a file";
+      im.addEventListener("click", () => picker.click());
+
+      row.appendChild(lbl);
+      row.appendChild(ex);
+      row.appendChild(im);
+      row.appendChild(picker);
+      backupRows.appendChild(row);
+    });
+  });
+}
+renderBackupRows();
 
 async function render(list) {
   const hidden = await getHidden();

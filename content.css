@@ -40,27 +40,6 @@
   }
 }
 
-.rpf-img-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 2147483000;
-  cursor: pointer;
-  border: none;
-  border-radius: 999px;
-  padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font: 600 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-
-.rpf-img-overlay:hover {
-  background: rgba(0, 0, 0, 0.85);
-}
-
 #rpf-block {
   position: fixed;
   inset: 0;

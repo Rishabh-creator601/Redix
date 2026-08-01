@@ -6,12 +6,6 @@
 const DEFAULTS = {
   enabled: true,
   strict: false, // false = also match variants (murder -> murders, murdered)
-  hideNsfw: true,    // hide posts/communities Reddit itself flags as adult/NSFW
-  nsfwLocked: false, // once true, adult blocking is forced on and can't be toggled off in the popup
-  imgFilter: true,        // AI image blurring (loads a ~7MB model on first use)
-  imgIncludeSexy: false,  // also blur "revealing / short-dress" (broader, more false positives)
-  imgSensitivity: 60,     // 1..100, higher = stricter
-  ocrEnabled: false,      // read text inside images (OCR) and run it through keyword + theme filters
   hiddenSubs: [],         // communities blocked with × (hidden in feeds + page blocked + not recommended)
   allowMode: false,       // home feed: only posts from allowedSubs are shown
   allowedSubs: [],        // communities allowed on the home feed when allowMode is on
@@ -146,7 +140,7 @@ function cardFor(el) {
   return art || el;
 }
 
-// revealable=false → adult/NSFW & blocked communities: hard-hide, no "Show anyway".
+// revealable=false → blocked communities: hard-hide, no "Show anyway".
 function hideEl(el, word, revealable = true) {
   if (el.dataset.rpfHidden) return;
   el.dataset.rpfHidden = "1";
@@ -169,46 +163,6 @@ function hideEl(el, word, revealable = true) {
     ph.appendChild(btn);
   }
   if (card.parentNode) card.parentNode.insertBefore(ph, card);
-}
-
-// New Reddit exposes NO nsfw attribute in the DOM, so we confirm each post's
-// adult status against Reddit's own API (over_18) and hide flagged posts.
-// Old Reddit *does* expose `.over18` as a class, handled synchronously below.
-const nsfwCache = new Map();  // "t3_xxx" -> boolean
-const nsfwElems = new Map();  // "t3_xxx" -> element awaiting a result
-let nsfwPending = new Set();
-let nsfwTimer = null;
-
-function queueNsfwCheck(el) {
-  const id = el.id;
-  if (!id || !/^t3_/.test(id)) return;
-  if (nsfwCache.has(id)) {
-    if (nsfwCache.get(id)) hideEl(el, "adult / NSFW content", false);
-    return;
-  }
-  nsfwElems.set(id, el);
-  nsfwPending.add(id);
-  if (!nsfwTimer) nsfwTimer = setTimeout(flushNsfw, 350);
-}
-
-async function flushNsfw() {
-  nsfwTimer = null;
-  const ids = [...nsfwPending];
-  nsfwPending.clear();
-  for (let i = 0; i < ids.length; i += 100) {
-    const batch = ids.slice(i, i + 100);
-    const j = await fetchJson(
-      "https://www.reddit.com/api/info.json?id=" + batch.join(",") + "&raw_json=1");
-    const kids = (j && j.data && j.data.children) || [];
-    kids.forEach(c => {
-      const name = c.data.name;
-      const over = !!c.data.over_18;
-      nsfwCache.set(name, over);
-      const el = nsfwElems.get(name);
-      if (over && el) hideEl(el, "adult / NSFW content", false);
-      nsfwElems.delete(name);
-    });
-  }
 }
 
 // Communities the user blocked with the × ("hide") button on a recommendation.
@@ -256,10 +210,8 @@ function subredditOf(el) {
   return n.toLowerCase();
 }
 
-// Full-page block for adult communities *and* communities you blocked with ×.
-const subGateCache = new Map(); // "subname" -> boolean(over18)
-
-async function checkSubredditGate() {
+// Full-page block for communities you blocked with ×.
+function checkSubredditGate() {
   removeBlock(); // clear any stale block when navigating
   if (cfg.homeBlock && isHomeFeed()) { blockHomePage(); return; }
   const m = location.pathname.match(/^\/r\/([A-Za-z0-9_]+)/);
@@ -267,25 +219,14 @@ async function checkSubredditGate() {
   const sub = m[1].toLowerCase();
   if (sub === "all" || sub === "popular") return;
 
-  if (blockedSubs.has(sub)) { blockPage(sub, "blocked"); return; }
-  if (!cfg.hideNsfw) return;
-
-  let over = subGateCache.get(sub);
-  if (over === undefined) {
-    const j = await fetchJson("https://www.reddit.com/r/" + sub + "/about.json?raw_json=1");
-    over = !!(j && j.data && (j.data.over18 || j.data.over_18));
-    subGateCache.set(sub, over);
-  }
-  // guard against a late response after the user already navigated away
-  if (over && new RegExp("^/r/" + sub + "(/|$)", "i").test(location.pathname)) blockPage(sub, "nsfw");
+  if (blockedSubs.has(sub)) blockPage(sub);
 }
 
-function blockPage(sub, kind) {
+function blockPage(sub) {
   if (document.getElementById("rpf-block")) return;
-  const heading = kind === "nsfw" ? "Adult community blocked" : "Community blocked";
-  const reason = kind === "nsfw"
-    ? "r/" + sub + " is flagged 18+/NSFW. Viewing and joining it are blocked by your Positivity Filter."
-    : "You blocked r/" + sub + ". Viewing and joining it are turned off. Un-block it from the extension's Find-communities tab.";
+  const heading = "Community blocked";
+  const reason = "You blocked r/" + sub +
+    ". Viewing and joining it are turned off. Unblock it from the extension's Discover tab.";
   const div = document.createElement("div");
   div.id = "rpf-block";
   div.innerHTML =
@@ -332,8 +273,8 @@ function blockHomePage() {
   document.documentElement.style.overflow = "hidden";
 
   // Search runs through the same recommender as the popup's finder, so blocked
-  // and 18+ communities never show up. Opening a community page is fine — the
-  // block covers only the home feed.
+  // communities never show up. Opening a community page is fine — the block
+  // covers only the home feed.
   const input = div.querySelector("#rpf-search-in");
   const btn = div.querySelector("#rpf-search-btn");
   const out = div.querySelector("#rpf-search-results");
@@ -430,13 +371,6 @@ function processOne(el) {
     const sub = subredditOf(el);
     if (sub && blockedSubs.has(sub)) { hideEl(el, "blocked community r/" + sub, false); return; }
   }
-  if (cfg.hideNsfw) {
-    if (el.classList && el.classList.contains("over18")) { // old reddit
-      hideEl(el, "adult / NSFW content", false);
-      return;
-    }
-    if (el.tagName === "SHREDDIT-POST") queueNsfwCheck(el); // new reddit -> API
-  }
   if (cfg.enabled && matcher) {
     const m = matcher.exec(textOf(el));
     if (m) { hideEl(el, 'mentions "' + m[1] + '"'); return; }
@@ -455,7 +389,7 @@ function processOne(el) {
 }
 
 function filteringActive() {
-  return cfg.hideNsfw || blockedSubs.size > 0 || (cfg.enabled && matcher) ||
+  return blockedSubs.size > 0 || (cfg.enabled && matcher) ||
          compiledThemes.length > 0 || (allowModeActive() && isHomeFeed());
 }
 
@@ -481,7 +415,7 @@ function applyAll() {
   buildBlocked();
   buildAllowed();
   unhideAll();
-  scan(document); // scan() checks its own gates (keyword + NSFW + blocked subs)
+  scan(document); // scan() checks its own gates (keywords, themes, blocked subs)
 }
 
 // ---- Community recommender (runs same-origin on reddit.com) ----
@@ -574,191 +508,6 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   }
 });
 
-// ---- On-device explicit-image filter (NSFWJS / TensorFlow.js) ----
-// Everything runs locally in the page; no image ever leaves the browser.
-let modelPromise = null;
-async function ensureModel() {
-  if (modelPromise) return modelPromise;
-  modelPromise = (async () => {
-    // Lazy-load the ~7MB library + weights only when the user turns this on.
-    await import(chrome.runtime.getURL("vendor/tf.js"));
-    await import(chrome.runtime.getURL("vendor/nsfwjs.js"));
-    const tf = globalThis.tf;
-    const nsfwjs = globalThis.nsfwjs;
-    if (tf.enableProdMode) tf.enableProdMode();
-    // Trailing slash: nsfwjs fetches <base>model.json (a Keras "layers" model).
-    const model = await nsfwjs.load(chrome.runtime.getURL("model/"), { size: 224 });
-    return model;
-  })().catch(err => { modelPromise = null; throw err; });
-  return modelPromise;
-}
-
-function loadCorsImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous"; // needed so the model can read pixels
-    img.decoding = "async";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("cors/load"));
-    img.src = url;
-  });
-}
-
-function scoreOf(preds) {
-  let porn = 0, hentai = 0, sexy = 0;
-  preds.forEach(p => {
-    if (p.className === "Porn") porn = p.probability;
-    else if (p.className === "Hentai") hentai = p.probability;
-    else if (p.className === "Sexy") sexy = p.probability;
-  });
-  return { explicit: Math.max(porn, hentai), sexy };
-}
-
-function blurImage(img, reason) {
-  if (img.dataset.rpfBlur) return;
-  img.dataset.rpfBlur = "1";
-  img.style.filter = "blur(32px)";
-  img.style.transition = "filter .15s ease";
-  const parent = img.parentElement;
-  if (!parent) return;
-  if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
-  const ov = document.createElement("button");
-  ov.className = "rpf-img-overlay";
-  ov.textContent = "🔞 " + reason + " — click to view";
-  ov.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    img.style.filter = "";
-    ov.remove();
-  });
-  parent.appendChild(ov);
-}
-
-// Small concurrency-limited queue so scrolling doesn't spawn 100 classifications.
-const imgQueue = [];
-let active = 0;
-const MAX_ACTIVE = 2;
-
-function isTiny(img) {
-  const w = img.clientWidth || img.naturalWidth || 0;
-  const h = img.clientHeight || img.naturalHeight || 0;
-  return (w && w < 90) || (h && h < 90);
-}
-
-function pump() {
-  while (active < MAX_ACTIVE && imgQueue.length) {
-    const { img, src } = imgQueue.shift();
-    active++;
-    classifyImg(img, src).catch(() => {}).finally(() => { active--; pump(); });
-  }
-}
-
-async function classifyImg(img, src) {
-  const model = await ensureModel();
-  const el = await loadCorsImage(src); // fresh, untainted element for pixel reads
-  const preds = await model.classify(el);
-  const { explicit, sexy } = scoreOf(preds);
-  const s = (cfg.imgSensitivity || 60) / 100;
-  const tExplicit = 0.85 - s * 0.45; // sensitivity 100 -> 0.40, 60 -> 0.58, 1 -> ~0.85
-  const tSexy = 0.90 - s * 0.40;
-  if (explicit >= tExplicit) blurImage(img, "Explicit image hidden");
-  else if (cfg.imgIncludeSexy && sexy >= tSexy) blurImage(img, "Revealing image hidden");
-}
-
-function scanImages(root) {
-  if (!cfg.imgFilter) return;
-  const imgs = root.querySelectorAll ? root.querySelectorAll("img") : [];
-  imgs.forEach(img => {
-    if (img.dataset.rpfImgSeen) return;
-    const src = img.currentSrc || img.src || "";
-    // Only Reddit-hosted images are CORS-readable; skip avatars/icons/emoji.
-    if (!/(^|\.)redd\.it\//.test(src) && !/\.reddit(static)?\.com\//.test(src)) return;
-    if (/\/(award|emoji|avatar)/i.test(src) || /styles\.redditmedia/.test(src)) return;
-    if (isTiny(img)) return;
-    img.dataset.rpfImgSeen = "1";
-    imgQueue.push({ img, src });
-  });
-  pump();
-}
-
-// ---- On-device OCR (Tesseract.js, via the offscreen document) ----
-// Reads text baked into images and runs it through the SAME keyword + theme
-// filters as normal post text. OCR is heavy, so it's opt-in and one-at-a-time.
-const ocrQueue = [];
-let ocrActive = 0;
-const OCR_MAX = 1;                 // OCR is expensive — never run two at once
-const ocrCache = new Map();        // src -> recognized text (avoids re-OCR on re-scan)
-
-// Only worth OCR-ing if there's actually a text/theme rule to test against.
-function ocrUseful() {
-  return cfg.ocrEnabled && (((cfg.enabled && matcher)) || compiledThemes.length > 0);
-}
-
-function postCardOf(img) {
-  return (img.closest && img.closest("shreddit-post, .thing.link, article")) || img;
-}
-
-function scanOcr(root) {
-  if (!ocrUseful()) return;
-  const imgs = root.querySelectorAll ? root.querySelectorAll("img") : [];
-  imgs.forEach(img => {
-    if (img.dataset.rpfOcrSeen) return;
-    const src = img.currentSrc || img.src || "";
-    // Same CORS-readable constraint as the NSFW filter: only Reddit-hosted images.
-    if (!/(^|\.)redd\.it\//.test(src) && !/\.reddit(static)?\.com\//.test(src)) return;
-    if (/\/(award|emoji|avatar)/i.test(src) || /styles\.redditmedia/.test(src)) return;
-    if (isTiny(img)) return;
-    img.dataset.rpfOcrSeen = "1";
-    ocrQueue.push({ img, src });
-  });
-  pumpOcr();
-}
-
-function pumpOcr() {
-  while (ocrActive < OCR_MAX && ocrQueue.length) {
-    const { img, src } = ocrQueue.shift();
-    ocrActive++;
-    ocrOne(img, src).catch(() => {}).finally(() => { ocrActive--; pumpOcr(); });
-  }
-}
-
-async function ocrText(src) {
-  if (ocrCache.has(src)) return ocrCache.get(src);
-  const el = await loadCorsImage(src);         // untainted element for pixel reads
-  const canvas = document.createElement("canvas");
-  const maxW = 1000;                            // downscale huge images for speed
-  const scale = el.naturalWidth > maxW ? maxW / el.naturalWidth : 1;
-  canvas.width = Math.max(1, Math.round(el.naturalWidth * scale));
-  canvas.height = Math.max(1, Math.round(el.naturalHeight * scale));
-  canvas.getContext("2d").drawImage(el, 0, 0, canvas.width, canvas.height);
-  const dataUrl = canvas.toDataURL("image/png");
-  const res = await chrome.runtime.sendMessage({ type: "ocr-request", dataUrl });
-  const text = (res && res.ok && res.text) ? res.text : "";
-  ocrCache.set(src, text);
-  return text;
-}
-
-async function ocrOne(img, src) {
-  const text = await ocrText(src);
-  if (!text || !text.trim()) return;
-  const low = text.toLowerCase();
-  const card = postCardOf(img);
-  // Keyword hit -> revealable ("Show anyway"); theme hit -> hard-block.
-  if (cfg.enabled && matcher) {
-    const m = matcher.exec(low);
-    if (m) { hideEl(card, 'image text mentions "' + m[1] + '"', true); return; }
-  }
-  for (const t of compiledThemes) {
-    const r = matchTheme(low, t);
-    if (r.hit) { hideEl(card, 'image theme "' + t.name + '" (' + r.groupsHit.join(" + ") + ')', false); return; }
-  }
-}
-
-// A lock is a one-way commitment: once set, adult blocking stays on.
-function applyLock() {
-  if (cfg.nsfwLocked) cfg.hideNsfw = true;
-}
-
 // ---- Boot ----
 // Seed the default keyword list into storage on first run so the popup and the
 // export/import feature always see the real list (not an empty placeholder).
@@ -777,10 +526,7 @@ chrome.storage.sync.get(null, (raw) => {
 
 chrome.storage.sync.get(DEFAULTS, (stored) => {
   cfg = { ...DEFAULTS, ...stored };
-  applyLock();
   applyAll();
-  scanImages(document);
-  scanOcr(document);
   checkSubredditGate();
   updateBlockButton();
 
@@ -789,15 +535,13 @@ chrome.storage.sync.get(DEFAULTS, (stored) => {
       for (const n of m.addedNodes) {
         if (n.nodeType !== 1) continue;
         if (filteringActive()) scan(n);
-        if (cfg.imgFilter) scanImages(n);
-        if (cfg.ocrEnabled) scanOcr(n);
       }
     }
   });
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
   // Reddit is a single-page app: the URL changes without a reload, so poll it
-  // to re-check the adult-community gate when you move between communities.
+  // to re-check the blocked-community gate when you move between communities.
   let lastPath = location.pathname;
   setInterval(() => {
     if (location.pathname !== lastPath) {
@@ -815,10 +559,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "sync") return;
   chrome.storage.sync.get(DEFAULTS, (stored) => {
     cfg = { ...DEFAULTS, ...stored };
-    applyLock();
     applyAll();
-    if (cfg.imgFilter) scanImages(document);
-    if (cfg.ocrEnabled) scanOcr(document);
     checkSubredditGate();
     updateBlockButton();
   });

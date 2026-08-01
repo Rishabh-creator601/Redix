@@ -114,7 +114,7 @@
     margin-bottom: 12px;
   }
   .card:last-child { margin-bottom: 0; }
-  .card-title, .section-title {
+  .card-title {
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.09em;
@@ -206,7 +206,6 @@
     border-radius: 4px;
     padding: 0 4px;
   }
-  .slider-val { font-size: 11.5px; color: var(--sub); }
 
   /* ---- Buttons ---- */
   button.primary {
@@ -234,14 +233,6 @@
     white-space: nowrap;
   }
   .minibtn:hover { border-color: var(--accent); color: var(--accent); }
-  .link {
-    background: none;
-    border: none;
-    color: var(--accent);
-    font-size: 11.5px;
-    cursor: pointer;
-    padding: 0;
-  }
   .btn-row { display: flex; gap: 8px; margin-top: 10px; }
   .btn-row .primary { flex: 1; }
 
@@ -252,7 +243,6 @@
     color: var(--ok);
   }
 
-  hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
   .muted { color: var(--sub); font-size: 12px; }
 
   /* ---- Community result rows (finder + allowlist search) ---- */
@@ -314,33 +304,115 @@
   }
   .sub-row .block-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 
-  /* ---- Blocked-community chips ---- */
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  .chip {
-    display: inline-flex;
+  /* ---- Blocked communities: a disclosure over a single-column list.
+     Names are set in a 3-column grid so every "r/" lands on the same vertical
+     line — the list reads as one column instead of a ragged pile of tags. ---- */
+  .bx-toggle {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    background: var(--danger-soft);
-    border: 1px solid var(--danger-line);
-    color: var(--danger);
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .bx-toggle:hover { border-color: var(--accent); color: var(--accent); }
+  .bx-count {
+    flex: none;
+    padding: 1px 8px;
     border-radius: 999px;
-    padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    border: 1px solid var(--danger-line);
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .bx-count.none {
+    border-color: var(--line-strong);
+    background: transparent;
+    color: var(--sub);
     font-weight: 600;
   }
-  .chip .chip-x {
-    border: none;
-    background: var(--danger-line);
-    color: #fff;
-    border-radius: 50%;
-    width: 16px;
-    height: 16px;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0;
+
+  /* 0fr -> 1fr animates the height without measuring it in JS. */
+  .bx-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.18s ease;
   }
-  .chip .chip-x:hover { background: var(--danger); }
+  .bx-panel.open { grid-template-rows: 1fr; }
+  .bx-panel > .bx-inner { min-height: 0; overflow: hidden; }
+
+  .bx-filter {
+    width: 100%;
+    margin-top: 10px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12px;
+    background: var(--bg);
+    color: inherit;
+  }
+  .bx-list { margin-top: 6px; max-height: 214px; overflow-y: auto; padding-right: 2px; }
+  .bx-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    padding: 5px 0;
+    border-top: 1px solid var(--line);
+  }
+  .bx-row:first-child { border-top: none; }
+  .bx-pre { color: var(--sub); font-size: 12.5px; font-weight: 600; }
+  .bx-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bx-un {
+    flex: none;
+    border: none;
+    background: none;
+    border-radius: 7px;
+    padding: 4px 7px;
+    color: var(--sub);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .bx-un:hover { background: var(--danger-soft); color: var(--danger); }
+  .bx-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid var(--line);
+  }
+  .bx-all {
+    flex: none;
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--sub);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .bx-all:hover, .bx-all.armed { color: var(--danger); }
+  .bx-empty { font-size: 12px; color: var(--sub); margin: 12px 0 2px; }
 
   /* ---- Theme cards ---- */
   .theme-card {
@@ -435,24 +507,30 @@
   .theme-testout.block { color: var(--danger); font-weight: 700; }
   .theme-testout.allow { color: var(--ok); }
 
-  /* ---- Footer: backup, always within reach ---- */
-  footer {
+  /* ---- Backup rows: one line per section, with its own pair of actions ---- */
+  .bk-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px 12px;
+    padding: 9px 0;
     border-top: 1px solid var(--line);
   }
-  footer .foot-label {
-    font-size: 10.5px;
+  .bk-row:first-child { border-top: none; padding-top: 2px; }
+  .bk-lbl { flex: 1; min-width: 0; }
+  .bk-lbl b { display: block; font-size: 12.5px; font-weight: 600; }
+  .bk-lbl small { display: block; font-size: 11px; color: var(--sub); margin-top: 1px; }
+  .bk-btn {
+    flex: none;
+    border: 1px solid var(--line-strong);
+    background: var(--card);
+    color: inherit;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11.5px;
     font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--sub);
-    margin-right: auto;
+    cursor: pointer;
   }
-  footer #backupStatus { margin: 0; min-height: 0; flex-basis: 100%; }
-  footer { flex-wrap: wrap; }
+  .bk-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
@@ -468,8 +546,8 @@
 <nav class="tabs">
   <div class="tab active" data-tab="home" tabindex="0">Home</div>
   <div class="tab" data-tab="filter" tabindex="0">Filters</div>
-  <div class="tab" data-tab="media" tabindex="0">Media</div>
   <div class="tab" data-tab="finder" tabindex="0">Discover</div>
+  <div class="tab" data-tab="backup" tabindex="0">Backup</div>
 </nav>
 
 <!-- ================ HOME ================ -->
@@ -521,16 +599,6 @@
   </div>
 
   <div class="card">
-    <div class="card-title">Adult content</div>
-    <label class="row">
-      <span class="lbl"><b>Block all adult content</b><small>Hides 18+ posts and blocks 18+ community pages.</small></span>
-      <input class="sw" type="checkbox" id="hideNsfw" />
-    </label>
-    <div class="row" id="lockRow"><button class="link" id="lockBtn">🔒 Lock this on — can't be undone here</button></div>
-    <div class="hint" id="lockedNote" style="display:none;">🔒 Adult blocking is <b>locked on</b>. The only way to remove it is to uninstall the extension in <code>chrome://extensions</code>.</div>
-  </div>
-
-  <div class="card">
     <div class="card-title">Themes — connected concepts</div>
     <label class="row">
       <span class="lbl"><b>Block connected concepts</b><small>Hides a post when most of a theme's concepts appear together, even without the exact phrase.</small></span>
@@ -545,39 +613,11 @@
   </div>
 </div>
 
-<!-- ================ MEDIA ================ -->
-<div class="panel" id="panel-media">
-  <div class="card">
-    <div class="card-title">Explicit images</div>
-    <label class="row">
-      <span class="lbl"><b>Blur nude or explicit images</b><small>A 7 MB model runs in your browser on first use. No image leaves your device.</small></span>
-      <input class="sw" type="checkbox" id="imgFilter" />
-    </label>
-    <label class="row">
-      <span class="lbl"><b>Also blur revealing images</b><small>Broader — expect more false positives.</small></span>
-      <input class="sw" type="checkbox" id="imgIncludeSexy" />
-    </label>
-    <div class="row" style="margin-top:12px;">
-      <span class="lbl"><b>Sensitivity</b></span>
-      <span class="slider-val"><span id="sensVal">60</span>/100</span>
-    </div>
-    <input type="range" id="imgSensitivity" min="1" max="100" step="1" />
-    <div class="hint">Higher blurs more, and may over-blur.</div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Text in images</div>
-    <label class="row">
-      <span class="lbl"><b>Read text inside images</b><small>Applies your keyword and theme filters to memes and screenshots. Runs on your device; slower, one image at a time.</small></span>
-      <input class="sw" type="checkbox" id="ocrEnabled" />
-    </label>
-  </div>
-</div>
-
 <!-- ================ DISCOVER ================ -->
 <div class="panel" id="panel-finder">
+  <div class="card" id="blocked-section"></div>
+
   <div class="card">
-    <div id="blocked-section"></div>
     <div class="card-title">Find communities</div>
     <div class="hint">Type an interest to get the top communities plus related ones. <b>Block</b> hides a community everywhere and blocks its page.</div>
     <input type="text" id="query" placeholder="e.g. machine learning" />
@@ -586,12 +626,14 @@
   </div>
 </div>
 
-<footer>
-  <span class="foot-label">Backup</span>
-  <button class="minibtn" id="exportBtn">Export</button>
-  <button class="minibtn" id="importBtn">Import</button>
-  <input type="file" id="importFile" accept="application/json,.json" style="display:none;" />
-  <div id="backupStatus"></div>
-</footer>
+<!-- ================ BACKUP ================ -->
+<div class="panel" id="panel-backup">
+  <div class="card">
+    <div class="card-title">Export &amp; import</div>
+    <div class="hint">Each section saves to its own file. Importing one replaces only that section — everything else stays as it is.</div>
+    <div id="backupRows"></div>
+    <div id="backupStatus"></div>
+  </div>
+</div>
 
 <script src="popup.js"></script>
