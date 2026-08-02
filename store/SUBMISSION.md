@@ -82,8 +82,13 @@ Open source: https://github.com/Rishabh-creator601/Reddit-filters
 
 ### Category
 
-**Social & Communication** — the extension modifies a social site's feed.
-(Second choice: *Productivity*, if you'd rather frame it as focus tooling.)
+**Social Networking** — listed as **Social & Communication** in the older
+dashboard taxonomy; same slot, renamed.
+
+It's where users browse for Reddit tools, which matters more than usual here:
+the coined name carries no keywords, so category browsing is one of the few
+discovery paths left. *Well-being* fits "positivity filter" and is far less
+crowded, but nobody looking for a Reddit extension browses it.
 
 ### Language
 
