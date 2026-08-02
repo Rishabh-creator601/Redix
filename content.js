@@ -1,4 +1,4 @@
-/* Reddit Positivity Filter — content script
+/* Redix — content script
  * 1) Hides posts/comments that mention filtered (negative/vulgar) topics.
  * 2) Fetches recommended communities for a keyword (same-origin, uses your session).
  */

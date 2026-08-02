@@ -118,7 +118,7 @@ def promo(w, h, out_name, title_size, tag_size, horizontal):
 
     t_font = font(SERIF, title_size)
     g_font = font(SANS, tag_size)
-    title, tag = "Reddit Positivity Filter", "Choose what reaches you."
+    title, tag = "Redix", "Choose what reaches you."
 
     if horizontal:
         side = int(h * 0.42)

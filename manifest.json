@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Reddit Positivity Filter",
+  "name": "Redix",
   "version": "1.2.0",
   "description": "Hides Reddit posts and comments about topics you choose, blocks communities and the home feed, and finds communities you love.",
   "permissions": ["storage"],
@@ -22,7 +22,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Reddit Positivity Filter",
+    "default_title": "Redix",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

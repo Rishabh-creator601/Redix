@@ -1,5 +1,8 @@
 # Chrome Web Store listing assets
 
+> Submitting? Start with **[SUBMISSION.md](SUBMISSION.md)** — the copy-paste
+> packet for every Developer Dashboard field, including the privacy answers.
+
 Everything the **Developer Dashboard** asks for when publishing this extension,
 one folder per field group. These images are **not** part of the extension
 package — Chrome never reads them from `manifest.json`, and they are excluded
